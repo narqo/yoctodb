@@ -22,7 +22,7 @@ const (
 	PayloadFull uint32 = 1 + iota
 
 	// no documents have any payload
-	PayloadNone uint32 = 2
+	PayloadNone
 )
 
 const (
