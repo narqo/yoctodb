@@ -14,7 +14,7 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	if err := yoctodb.ReadVerifyDB(bytes.NewReader(dbData)); err != nil {
+	if _, err := yoctodb.ReadVerifyDB(bytes.NewReader(dbData)); err != nil {
 		panic(err)
 	}
 }

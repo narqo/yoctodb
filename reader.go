@@ -14,55 +14,69 @@ var dbFormatMagic = []byte{0x40, 0xC7, 0x0D, 0xB1}
 
 const (
 	DBFormatVersion    = 5
-	DBFormatDigestSize = md5.Size
+	dbFormatDigestSize = md5.Size
 )
 
 const (
-	SegmentFixedLengthFilter        uint32 = 1000 * (iota + 1)
-	segmentVarLenFilter
-	SegmentFixedLengthSortableIndex
-	SegmentVarLenSortableIndex
-	SegmentFixedLengthFullIndex
-	SegmentVarLenFullIndex
+	// all documents have payload
+	PayloadFull uint32 = 1 + iota
+
+	// no documents have any payload
+	PayloadNone uint32 = 2
 )
 
 const (
-	MultiMapListBased   uint32 = 1000 * (iota + 1)
-	MultiMapBitSetBased
+	// filterable segment of fixed length elements
+	FixedLenFilterSegment uint32 = 1000 * (1 + iota)
+
+	// filterable segment of variable length elements
+	VarLenFilterSegment
+
+	// sortable segment of fixed length elements
+	FixedLenSortableIndexSegment
+
+	// sortable segment of variable length elements
+	VarLenSortableIndexSegment
+
+	// full segment of fixed length elements
+	FixedLenFullIndexSegment
+
+	// full segment of variable length elements
+	VarLenFullIndexSegment
 )
 
 var (
 	ErrWrongMagic    = errors.New("wrong magic")
-	ErrShortData     = errors.New("short data")
 	ErrCorruptedData = errors.New("data is corrupted")
+	ErrNoPayload     = errors.New("no payload")
 )
 
-func ReadDB(data io.Reader) error {
+func ReadDB(data io.Reader) (*DB, error) {
 	return readDB(data, false)
 }
 
-func ReadVerifyDB(data io.Reader) error {
+func ReadVerifyDB(data io.Reader) (*DB, error) {
 	return readDB(data, true)
 }
 
-func readDB(data io.Reader, verifyChecksum bool) error {
+func readDB(data io.Reader, verifyChecksum bool) (*DB, error) {
 	// check the magic
 	rawMagic := make([]byte, len(dbFormatMagic))
 	if _, err := data.Read(rawMagic); err != nil {
-		return fmt.Errorf("could not read magic: %v", err)
+		return nil, fmt.Errorf("could not read magic: %v", err)
 	}
 	if !bytes.Equal(dbFormatMagic, rawMagic) {
-		return ErrWrongMagic
+		return nil, ErrWrongMagic
 	}
 
 	// check format version
 	var version uint32
 	if err := readUint32(data, &version); err != nil {
-		return fmt.Errorf("could not read version: %v", err)
+		return nil, fmt.Errorf("could not read version: %v", err)
 	}
 
 	if version != DBFormatVersion {
-		return fmt.Errorf("version format %d is not supported", version)
+		return nil, fmt.Errorf("version format %d is not supported", version)
 	}
 	fmt.Printf("parsed version: %d\n", version)
 
@@ -78,34 +92,63 @@ func readDB(data io.Reader, verifyChecksum bool) error {
 
 	buf, err := ioutil.ReadAll(data)
 	if err != nil {
-		return fmt.Errorf("count not read remaining data: %v", err)
+		return nil, fmt.Errorf("count not read remaining data: %v", err)
 	}
-	if len(buf) < DBFormatDigestSize {
-		return ErrShortData
+	if len(buf) < dbFormatDigestSize {
+		return nil, ErrCorruptedData
 	}
 
-	body, origDigest := buf[:len(buf)-DBFormatDigestSize], buf[len(buf)-DBFormatDigestSize:]
+	// TODO(varankinv): maybe move to `DB.Verify() error`
+	body, origDigest := buf[:len(buf)-dbFormatDigestSize], buf[len(buf)-dbFormatDigestSize:]
+
 	if verifyChecksum {
 		bodyDigest := md5.Sum(body)
 		if !bytes.Equal(origDigest, bodyDigest[:]) {
-			return ErrCorruptedData
+			return nil, ErrCorruptedData
 		}
+	}
+
+	db := &DB{
+		Version: uint8(version),
+		filters: make(map[string]*FilterableIndex),
 	}
 
 	sr := NewSegmentReader(bytes.NewReader(body))
 	for !sr.Empty() {
-		_, err := sr.ReadSegment()
+		segment, err := sr.ReadSegment()
 		if err != nil {
-			return err
+			return nil, err
+		}
+		switch s := segment.(type) {
+		case *Payload:
+			if db.payload != nil {
+				return nil, errors.New("duplicate payload")
+			}
+			db.payload = s
+
+		case *FilterableIndex:
+			if _, ok := db.filters[s.Name]; ok {
+				return nil, fmt.Errorf("duplicate filterable index for field %q", s.Name)
+			}
+			db.filters[s.Name] = s
 		}
 	}
 
-	return nil
+	if db.payload == nil {
+		return nil, ErrNoPayload
+	}
+
+	return db, nil
 }
+
+const (
+	multimapListBased   uint32 = 1000 * (1 + iota)
+	multimapBitSetBased
+)
 
 type SegmentReader struct {
 	r *bytes.Reader
-	/// header contains segment's header (size + type)
+	// header contains segment's header (size + type)
 	header [12]byte
 	// offset contains segment's absolute offset
 	offset int64
@@ -130,66 +173,34 @@ func (s *SegmentReader) ReadSegment() (v interface{}, err error) {
 
 	fmt.Printf("read segment: type %d, size %d\n", typ, size)
 
-	sr := io.LimitReader(s.r, int64(size))
 	s.offset += int64(len(s.header)) + int64(size)
 
 	var segment interface{}
 
+	sr := io.LimitReader(s.r, int64(size))
+
 	switch typ {
-	case segmentVarLenFilter:
-		var segmentName []byte
-		if err := readBytes(sr, &segmentName); err != nil {
-			return nil, err
-		}
-
-		var chunkLen uint64
-
-		if err := readUint64(sr, &chunkLen); err != nil {
-			return nil, err
-		}
-		if chunkLen == 0 {
-			return nil, errors.New("empty segment")
-		}
-
-		vals, err := NewVarLenSortedSet(io.LimitReader(sr, int64(chunkLen)))
+	case PayloadFull:
+		segment, err = s.readPayload(sr)
 		if err != nil {
-			return nil, fmt.Errorf("count not read segment vals %d: %v", typ, err)
-		}
-
-		if err := readUint64(sr, &chunkLen); err != nil {
 			return nil, err
 		}
-		if chunkLen == 0 {
-			return nil, errors.New("empty segment")
-		}
 
-		idxr := io.LimitReader(sr, int64(chunkLen))
-
-		var mmtyp uint32
-		if err := readUint32(idxr, &mmtyp); err != nil {
+	case PayloadNone:
+		var size uint32
+		if err := readUint32(sr, &size); err != nil {
 			return nil, err
 		}
-		fmt.Printf("read segment: mmtype %d\n", mmtyp)
+		segment = &EmptyPayload{int(size)}
 
-		var docs interface{}
-
-		switch mmtyp {
-		case MultiMapListBased:
-		case MultiMapBitSetBased:
-			docs, err = NewBitSetIndexToIndexMultiMap(idxr)
-			if err != nil {
-				return nil, fmt.Errorf("count not read segment docs %d: %v", typ, err)
-			}
-		}
-
-		segment = &FilterableIndex{
-			Name: string(segmentName),
-			vals: vals,
-			docs: docs,
+	case FixedLenFilterSegment, VarLenFilterSegment:
+		segment, err = s.readFilterable(sr, typ)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	fmt.Printf("parsed segment: %+v\n", segment)
+	fmt.Printf("read segment: %+v\n", segment)
 
 	// skip to next segment
 	if _, err := s.r.Seek(s.offset, io.SeekStart); err != nil {
@@ -199,9 +210,96 @@ func (s *SegmentReader) ReadSegment() (v interface{}, err error) {
 	return segment, nil
 }
 
+func (s *SegmentReader) readFilterable(r io.Reader, typ uint32) (v *FilterableIndex, err error) {
+	var segmentName []byte
+	if err := readBytes(r, &segmentName); err != nil {
+		return nil, err
+	}
+
+	var chunkLen uint64
+
+	if err := readUint64(r, &chunkLen); err != nil {
+		return nil, err
+	}
+	if chunkLen == 0 {
+		return nil, errors.New("empty segment")
+	}
+
+	var valsSet SortedSet
+
+	if typ == FixedLenFilterSegment {
+		r := io.LimitReader(r, int64(chunkLen))
+		valsSet, err = NewFixedLenSortedSet(r)
+		if err != nil {
+			return nil, fmt.Errorf("count not read segment values set %d: %v", typ, err)
+		}
+	} else {
+		r := io.LimitReader(r, int64(chunkLen))
+		valsSet, err = NewVarLenSortedSet(r)
+		if err != nil {
+			return nil, fmt.Errorf("count not read segment valsSet %d: %v", typ, err)
+		}
+	}
+
+	if err := readUint64(r, &chunkLen); err != nil {
+		return nil, err
+	}
+	if chunkLen == 0 {
+		return nil, errors.New("empty segment")
+	}
+
+	idxr := io.LimitReader(r, int64(chunkLen))
+
+	var mmtyp uint32
+	if err := readUint32(idxr, &mmtyp); err != nil {
+		return nil, err
+	}
+
+	var docs interface{}
+
+	switch mmtyp {
+	case multimapListBased:
+	case multimapBitSetBased:
+		docs, err = NewBitSetIndexToIndexMultiMap(idxr)
+		if err != nil {
+			return nil, fmt.Errorf("count not read segment docs %d: %v", typ, err)
+		}
+	}
+
+	segment := &FilterableIndex{
+		Name: string(segmentName),
+		vals: valsSet,
+		docs: docs,
+	}
+	return segment, nil
+}
+
+func (s *SegmentReader) readPayload(r io.Reader) (v *Payload, err error) {
+	var chunkLen uint64
+
+	if err := readUint64(r, &chunkLen); err != nil {
+		return nil, err
+	}
+	if chunkLen == 0 {
+		return nil, errors.New("empty segment")
+	}
+
+	r = io.LimitReader(r, int64(chunkLen))
+	payload, err := NewVarLenSortedSet(r)
+	if err != nil {
+		return nil, fmt.Errorf("count not read segment payload %v", err)
+	}
+
+	segment := &Payload{
+		data: payload,
+	}
+	return segment, nil
+}
+
 // SortedSet represents sorted set of values used for filtering and sorting.
 type SortedSet interface {
 	Get(i int) ([]byte, error)
+	Size() int
 }
 
 // IndexToIndexMultiMap stores an inverse mapping from a value index to document indexes.
@@ -219,6 +317,73 @@ type FilterableIndex struct {
 	docs IndexToIndexMultiMap
 }
 
+// Payload is an import payload segment.
+type Payload struct {
+	data SortedSet
+}
+
+func (p *Payload) Get(i int) ([]byte, error) {
+	return p.data.Get(i)
+}
+
+func (p *Payload) Size() int {
+	return p.data.Size()
+}
+
+// EmptyPayload is an immutable payload segment containing only document count.
+type EmptyPayload struct {
+	Size int
+}
+
+var errOutOfBounds = errors.New("out of bounds")
+
+type FixedLenSortedSet struct {
+	size     int
+	elemSize int
+	elems    []byte
+}
+
+func NewFixedLenSortedSet(r io.Reader) (*FixedLenSortedSet, error) {
+	var err error
+
+	var size, elemSize uint32
+	if err := readUint32(r, &size); err != nil {
+		return nil, err
+	}
+	if err := readUint32(r, &elemSize); err != nil {
+		return nil, err
+	}
+
+	data, err := ioutil.ReadAll(r)
+	if err != nil {
+		return nil, err
+	}
+
+	res := &FixedLenSortedSet{
+		size:     int(size),
+		elemSize: int(elemSize),
+		elems:    data,
+	}
+
+	return res, nil
+}
+
+func (v *FixedLenSortedSet) Get(i int) ([]byte, error) {
+	if i < 0 || i >= v.size {
+		return nil, errOutOfBounds
+	}
+	start := i * v.elemSize
+
+	buf := make([]byte, v.elemSize)
+	copy(buf, v.elems[start: v.elemSize])
+
+	return buf, nil
+}
+
+func (v *FixedLenSortedSet) Size() int {
+	return v.size
+}
+
 type VarLenSortedSet struct {
 	size    int
 	offsets []byte
@@ -232,7 +397,7 @@ func NewVarLenSortedSet(r io.Reader) (*VarLenSortedSet, error) {
 	if err := readUint32(r, &size); err != nil {
 		return nil, err
 	}
-	offsetsLen := (size+1)<<3 // e.g. size of int64 elements in "offset" chunk
+	offsetsLen := (size + 1) << 3 // e.g. size of int64 elements in "offset" chunk
 
 	data, err := ioutil.ReadAll(r)
 	if err != nil {
@@ -240,9 +405,9 @@ func NewVarLenSortedSet(r io.Reader) (*VarLenSortedSet, error) {
 	}
 
 	res := &VarLenSortedSet{
-		size: int(size),
+		size:    int(size),
 		offsets: data[:offsetsLen],
-		elems: data[offsetsLen:],
+		elems:   data[offsetsLen:],
 	}
 
 	return res, nil
@@ -250,7 +415,7 @@ func NewVarLenSortedSet(r io.Reader) (*VarLenSortedSet, error) {
 
 func (v *VarLenSortedSet) Get(i int) ([]byte, error) {
 	if i < 0 || i >= v.size {
-		return nil, errors.New("out of range")
+		return nil, errOutOfBounds
 	}
 	base := i << 3
 	ofr := bytes.NewReader(v.offsets[base:])
@@ -265,14 +430,18 @@ func (v *VarLenSortedSet) Get(i int) ([]byte, error) {
 	}
 
 	if start > end {
-		return nil, errors.New("out of range")
+		return nil, errOutOfBounds
 	}
 
 	size := end - start
 	buf := make([]byte, size)
-	copy(buf, v.elems[start:end-start])
+	copy(buf, v.elems[start: end-start])
 
 	return buf, nil
+}
+
+func (v *VarLenSortedSet) Size() int {
+	return v.size
 }
 
 type BitSetIndexToIndexMultiMap struct {
