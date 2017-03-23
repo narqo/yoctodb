@@ -109,7 +109,6 @@ func readDB(data io.Reader, verifyChecksum bool) (*DB, error) {
 	}
 
 	db := &DB{
-		Version: uint8(version),
 		filters: make(map[string]*FilterableIndex),
 	}
 
@@ -233,12 +232,14 @@ func (s *SegmentReader) readFilterable(r io.Reader, typ uint32) (v *FilterableIn
 		if err != nil {
 			return nil, fmt.Errorf("count not read segment values set %d: %v", typ, err)
 		}
-	} else {
+	} else if typ == VarLenFilterSegment {
 		r := io.LimitReader(r, int64(chunkLen))
 		valsSet, err = NewVarLenSortedSet(r)
 		if err != nil {
 			return nil, fmt.Errorf("count not read segment valsSet %d: %v", typ, err)
 		}
+	} else {
+		return nil, fmt.Errorf("unknown filterable segment type: %d", typ)
 	}
 
 	if err := readUint64(r, &chunkLen); err != nil {
@@ -255,7 +256,7 @@ func (s *SegmentReader) readFilterable(r io.Reader, typ uint32) (v *FilterableIn
 		return nil, err
 	}
 
-	var docs interface{}
+	var docs IndexToIndexMultiMap
 
 	switch mmtyp {
 	case multimapListBased:
@@ -300,10 +301,12 @@ func (s *SegmentReader) readPayload(r io.Reader) (v *Payload, err error) {
 type SortedSet interface {
 	Get(i int) ([]byte, error)
 	Size() int
+	Index([]byte) int
 }
 
 // IndexToIndexMultiMap stores an inverse mapping from a value index to document indexes.
 type IndexToIndexMultiMap interface {
+	Get(n int, v BitSet) (bool, error)
 }
 
 // TODO(varankinv): IndexToIndexMap
@@ -315,6 +318,13 @@ type FilterableIndex struct {
 	Name string
 	vals SortedSet
 	docs IndexToIndexMultiMap
+}
+
+func (f *FilterableIndex) Eq(val []byte, v BitSet) (bool, error) {
+	if n := f.vals.Index(val); n != -1 {
+		return f.docs.Get(n, v)
+	}
+	return false, nil
 }
 
 // Payload is an import payload segment.
@@ -384,6 +394,10 @@ func (v *FixedLenSortedSet) Size() int {
 	return v.size
 }
 
+func (v *FixedLenSortedSet) Index(val []byte) int {
+	return 0
+}
+
 type VarLenSortedSet struct {
 	size    int
 	offsets []byte
@@ -444,6 +458,10 @@ func (v *VarLenSortedSet) Size() int {
 	return v.size
 }
 
+func (v *VarLenSortedSet) Index(val []byte) int {
+	return 0
+}
+
 type BitSetIndexToIndexMultiMap struct {
 	keysCount int
 	size      int
@@ -471,6 +489,10 @@ func NewBitSetIndexToIndexMultiMap(r io.Reader) (*BitSetIndexToIndexMultiMap, er
 	}
 
 	return res, nil
+}
+
+func (m *BitSetIndexToIndexMultiMap) Get(n int, v BitSet) (bool, error) {
+	return false, nil
 }
 
 func readUint32(r io.Reader, v *uint32) error {

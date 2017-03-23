@@ -26,13 +26,13 @@ func main() {
 	assertTrue(db.count(doc2) == 1);
 	 */
 	doc2 := &yoctodb.Select{
-		Where: &yoctodb.Eq{"id": 2},
+		Where: yoctodb.Eq("id", []byte("2")),
 	}
 	n, err := db.Count(doc2)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Fprintf("doc count: %d\n", n)
+	fmt.Printf("doc count: %d\n", n)
 
 	/*
 	// Filter and sort
@@ -41,6 +41,8 @@ func main() {
                         .orderBy(desc("score"));
 	db.execute(sorted, ...)
 	 */
+	/*
+	TODO(varankinv): filter and sort example
 	sorted := &yoctodb.Select{
 		Where: &yoctodb.And{
 			&yoctodb.Gte{"id": 1},
@@ -50,4 +52,5 @@ func main() {
 	}
 	//err := db.DoProcess(sorted, func() error {})
 	err := db.Do(sorted)
+	*/
 }
