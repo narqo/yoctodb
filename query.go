@@ -21,9 +21,8 @@ func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 		return bs, nil
 	}
 	// TODO(varankinv): acquire bitSet
-	buf := make([]byte, db.DocumentCount())
-	bs := bitSet(buf)
-	ok, err := s.Where.Set(db, &bs)
+	bs := NewBitSet(db.DocumentCount())
+	ok, err := s.Where.Set(db, bs)
 	if err != nil {
 		return nil, err
 	}
@@ -31,7 +30,7 @@ func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 		// release bitSet
 		return nil, nil
 	}
-	return &bs, nil
+	return bs, nil
 }
 
 type Condition interface {
@@ -67,8 +66,8 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 	}
 
 	// TODO(varankinv): acquire BitSet
-	res := bitSet(make([]byte, v.Size()))
-	ok, err := c.setOne(1, db, &res)
+	res := NewBitSet(v.Size())
+	ok, err := c.setOne(1, db, res)
 	if err != nil {
 		return false, err
 	}
@@ -76,11 +75,11 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 		return false, nil
 	}
 
-	tres := bitSet(make([]byte, v.Size()))
+	tres := NewBitSet(v.Size())
 	for n := 2; n < len(*c); n++ {
 		//tres.Reset()
 
-		ok, err := c.setOne(n, db, &tres)
+		ok, err := c.setOne(n, db, tres)
 		if err != nil {
 			return false, err
 		}

@@ -1,6 +1,8 @@
 package yoctodb
 
-import "sync"
+import (
+	"sync"
+)
 
 type BitSet interface {
 	Size() int
@@ -47,18 +49,37 @@ func (b readOnlyZeroBitSet) Set(i int) {
 	return
 }
 
-// bitSet is a bit array.
-type bitSet struct {
-	l     int
-	words []uint8
+func bitSetWordSize(n uint) uint {
+	return uint(n) >> 6 + 1
 }
 
-func NewBitSet(l int) BitSet {
-	return &bitSet{l, make([]uint8, 7+l/8)}
+// bitSet is a bit array.
+type bitSet struct {
+	size  int
+	words []uint64
+}
+
+func NewBitSet(size int) BitSet {
+	NewBitSetOfOnes(size)
+	wordSize := bitSetWordSize(uint(size))
+	return &bitSet{size, make([]uint64, wordSize)}
+}
+
+func NewBitSetOfOnes(size int) BitSet {
+	wordSize := bitSetWordSize(uint(size))
+	b := &bitSet{size, make([]uint64, wordSize)}
+	for i := 0; i < len(b.words) - 1; i++ {
+		b.words[i] = ^uint64(0)
+	}
+	lastBits := uint(size) & 63
+	if lastBits != 0 {
+		b.words[len(b.words) - 1] = ^uint64(0) >> (64 - lastBits)
+	}
+	return b
 }
 
 func (b *bitSet) Size() int {
-	return b.l
+	return b.size
 }
 
 func (b *bitSet) Cardinality() int {
@@ -66,20 +87,21 @@ func (b *bitSet) Cardinality() int {
 }
 
 func (b *bitSet) Get(i int) bool {
-	if i >= b.l {
+	if i >= b.size {
 		return false
 	}
-	word := b.words[i%8]
-	bit := uint8(1 << uint(i))
-	return word&bit != 0
+	word := uint(i) >> 6                // i div 64
+	mask := uint64(1 << (uint(i) & 63)) // 1 << (i mod 64)
+	return b.words[word]&mask != 0
 }
 
 func (b *bitSet) Set(i int) {
-	if i >= b.l {
+	if i >= b.size {
 		return
 	}
-	bit := uint8(1 << uint(i))
-	b.words[i%8] |= bit
+	word := uint(i) >> 6  // i div 64
+	bit := uint64(i) & 63 // i mod 64
+	b.words[word] |= 1 << bit
 }
 
 var bitSetPool = sync.Pool{
