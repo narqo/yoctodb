@@ -19,11 +19,11 @@ func testBitSet(t *testing.T, prefix string, l int, b BitSet) {
 		t.Fatalf("(%s) Size() want %d, got %d", prefix, b.Size(), l)
 	}
 	for i := 0; i < l; i++ {
-		if b.Get(i) {
+		if b.Test(i) {
 			t.Fatalf("(%s) expect bit %d to be unset", prefix, i)
 		}
 		b.Set(i)
-		if !b.Get(i) {
+		if !b.Test(i) {
 			t.Fatalf("(%s) expect bit %d to be set", prefix, i)
 		}
 	}

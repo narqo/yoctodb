@@ -7,7 +7,7 @@ import (
 type BitSet interface {
 	Size() int
 	Cardinality() int
-	Get(i int) bool
+	Test(i int) bool
 	Set(i int)
 	Reset()
 }
@@ -25,7 +25,7 @@ func (b readOnlyOneBitSet) Cardinality() int {
 	return int(b)
 }
 
-func (b readOnlyOneBitSet) Get(i int) bool {
+func (b readOnlyOneBitSet) Test(i int) bool {
 	return true
 }
 
@@ -48,7 +48,7 @@ func (b readOnlyZeroBitSet) Cardinality() int {
 	return 0
 }
 
-func (b readOnlyZeroBitSet) Get(i int) bool {
+func (b readOnlyZeroBitSet) Test(i int) bool {
 	return false
 }
 
@@ -100,7 +100,7 @@ func (b *bitSet) Cardinality() int {
 	panic("implement me")
 }
 
-func (b *bitSet) Get(i int) bool {
+func (b *bitSet) Test(i int) bool {
 	if i >= b.size {
 		return false
 	}
