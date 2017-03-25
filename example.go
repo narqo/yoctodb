@@ -25,6 +25,7 @@ func main() {
 	final Query doc2 = select().where(eq("id", from(2)));
 	assertTrue(db.count(doc2) == 1);
 	 */
+
 	doc2 := &yoctodb.Select{
 		Where: yoctodb.Eq("color", []byte("FF0000")),
 	}
