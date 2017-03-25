@@ -408,7 +408,6 @@ func (v *FixedLenSortedSet) Index(val []byte) int {
 }
 
 type VarLenSortedSet struct {
-	reader  *bytes.Reader
 	size    int
 	offsets []byte
 	elems   []byte
@@ -429,7 +428,6 @@ func NewVarLenSortedSet(r io.Reader) (*VarLenSortedSet, error) {
 	}
 
 	res := &VarLenSortedSet{
-		reader:  &bytes.Reader{},
 		size:    int(size),
 		offsets: data[:offsetsLen],
 		elems:   data[offsetsLen:],
@@ -443,16 +441,9 @@ func (v *VarLenSortedSet) Get(i int) ([]byte, error) {
 		return nil, errOutOfBounds
 	}
 	base := i << 3
-	v.reader.Reset(v.offsets[base:])
-
-	var start, end uint64
-	if err := readUint64(v.reader, &start); err != nil {
-		return nil, err
-	}
-	if err := readUint64(v.reader, &end); err != nil {
-		return nil, err
-	}
-
+	offsets := v.offsets[base:]
+	start := binary.BigEndian.Uint64(offsets)
+	end := binary.BigEndian.Uint64(offsets[8:])
 	if start > end {
 		return nil, errOutOfBounds
 	}
@@ -469,14 +460,11 @@ func (v *VarLenSortedSet) Compare(i int, val []byte) (int, error) {
 		return 0, errOutOfBounds
 	}
 	base := i << 3
-	v.reader.Reset(v.offsets[base:])
-
-	var start, end uint64
-	if err := readUint64(v.reader, &start); err != nil {
-		return 0, err
-	}
-	if err := readUint64(v.reader, &end); err != nil {
-		return 0, err
+	offsets := v.offsets[base:]
+	start := binary.BigEndian.Uint64(offsets)
+	end := binary.BigEndian.Uint64(offsets[8:])
+	if start > end {
+		return 0, errOutOfBounds
 	}
 	return bytes.Compare(v.elems[start:end], val), nil
 }
@@ -511,7 +499,6 @@ func sortedSetIndexByte(v SortedSet, val []byte) int {
 }
 
 type BitSetIndexToIndexMultiMap struct {
-	reader    *bytes.Reader
 	keysCount int
 	size      int
 	elems     []byte
@@ -524,7 +511,6 @@ func NewBitSetIndexToIndexMultiMap(r io.Reader) (*BitSetIndexToIndexMultiMap, er
 		return nil, err
 	}
 	res := &BitSetIndexToIndexMultiMap{
-		reader:    &bytes.Reader{},
 		keysCount: int(n),
 	}
 
@@ -547,8 +533,9 @@ func (m *BitSetIndexToIndexMultiMap) Get(n int, v BitSet) (bool, error) {
 	}
 
 	offsetBytes := n * (m.size << 3)
-	m.reader.Reset(m.elems[offsetBytes:])
+	elems := m.elems[offsetBytes:]
 
+	// FIXME(varankinv): move to bitSet
 	b, ok := v.(*bitSet)
 	if !ok {
 		panic("implement me")
@@ -563,11 +550,8 @@ func (m *BitSetIndexToIndexMultiMap) Get(n int, v BitSet) (bool, error) {
 		w        uint64
 		notEmpty bool
 	)
-
 	for i := uint(0); i < wordSize; i++ {
-		if err := readUint64(m.reader, &w); err != nil {
-			return false, err
-		}
+		w, elems = binary.BigEndian.Uint64(elems), elems[8:]
 		b.words[i] |= w
 		if b.words[i] != 0 {
 			notEmpty = true
