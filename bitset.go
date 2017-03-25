@@ -117,6 +117,15 @@ func NewBitSetOfOnes(size int) BitSet {
 	return b
 }
 
+func (b *bitSet) grow(size int) {
+	wordSize := bitSetWordSize(uint(size))
+	if uint(len(b.words)) + wordSize > uint(cap(b.words)) {
+		b.words = make([]uint64, uint(cap(b.words)) + wordSize)
+	}
+	b.size = size
+	b.words = b.words[0:wordSize]
+}
+
 func (b *bitSet) Size() int {
 	return b.size
 }
@@ -209,8 +218,22 @@ func (b *bitSet) Or(b1 BitSet) (bool, error) {
 	return notEmpty, nil
 }
 
-var bitSetPool = sync.Pool{
-	New: func() interface{} { return new(bitSet) },
+var bitSetPool = sync.Pool{}
+
+func AcquireBitSet(size int) BitSet {
+	v := bitSetPool.Get()
+	if v == nil {
+		return NewBitSet(size)
+	}
+	if b, ok := v.(*bitSet); ok {
+		b.grow(size)
+		return b
+	}
+	return NewBitSet(size)
+}
+
+func ReleaseBitSet(b BitSet) {
+	bitSetPool.Put(b)
 }
 
 // popcount calculates bit population count (aka bitCount).

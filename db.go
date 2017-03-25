@@ -19,13 +19,16 @@ func (db *DB) DocumentCount() int {
 }
 
 func (db *DB) Count(q Query) (int, error) {
-	b, err := q.filteredUnlimited(db)
+	bs, err := q.filteredUnlimited(db)
 	if err != nil {
 		return 0, err
 	}
-	if b == nil {
+	if bs == nil {
 		return 0, nil
 	}
+
+	defer ReleaseBitSet(bs)
+
 	offset, err := q.offset()
 	if err != nil {
 		return 0, err
@@ -34,7 +37,7 @@ func (db *DB) Count(q Query) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	count := uint(b.Cardinality()) - offset
+	count := uint(bs.Cardinality()) - offset
 	if count < 0 {
 		count = 0
 	}

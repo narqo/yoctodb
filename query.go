@@ -25,14 +25,14 @@ func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 		bs := readOnlyOneBitSet(db.DocumentCount())
 		return bs, nil
 	}
-	// TODO(varankinv): acquire bitSet
-	bs := NewBitSet(db.DocumentCount())
+	bs := AcquireBitSet(db.DocumentCount())
 	ok, err := s.Where.Set(db, bs)
 	if err != nil {
+		ReleaseBitSet(bs)
 		return nil, err
 	}
 	if !ok {
-		// release bitSet
+		ReleaseBitSet(bs)
 		return nil, nil
 	}
 	return bs, nil
@@ -78,9 +78,10 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 		return c.setOne(0, db, v)
 	}
 
-	// TODO(varankinv): acquire BitSet
-	res := NewBitSet(v.Size())
-	ok, err := c.setOne(1, db, res)
+	res := AcquireBitSet(v.Size())
+	defer ReleaseBitSet(res)
+
+	ok, err := c.setOne(0, db, res)
 	if err != nil {
 		return false, err
 	}
@@ -88,18 +89,20 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 		return false, nil
 	}
 
-	tres := NewBitSet(v.Size())
-	for n := 2; n < len(*c); n++ {
-		tres.Reset()
+	claRes := AcquireBitSet(v.Size())
+	defer ReleaseBitSet(claRes)
 
-		ok, err := c.setOne(n, db, tres)
+	for n := 1; n < len(*c); n++ {
+		claRes.Reset()
+
+		ok, err := c.setOne(n, db, claRes)
 		if err != nil {
 			return false, err
 		}
 		if !ok {
 			return false, nil
 		}
-		anyBitSet, err := res.And(tres)
+		anyBitSet, err := res.And(claRes)
 		if err != nil {
 			return false, err
 		}
@@ -107,6 +110,7 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 			return false, nil
 		}
 	}
+
 	return v.Or(res)
 }
 
