@@ -1,5 +1,7 @@
 package yoctodb
 
+import "fmt"
+
 type DB struct {
 	filters map[string]*FilterableIndex
 	//sorters map[string]*SortableIndex
@@ -19,5 +21,10 @@ func (db *DB) DocumentCount() int {
 }
 
 func (db *DB) Count(q Query) (int, error) {
+	b, err := q.filteredUnlimited(db)
+	if err != nil {
+		return 0, err
+	}
+	fmt.Printf("bitset: %064b", b)
 	return 0, nil
 }

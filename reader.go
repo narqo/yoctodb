@@ -492,7 +492,38 @@ func NewBitSetIndexToIndexMultiMap(r io.Reader) (*BitSetIndexToIndexMultiMap, er
 }
 
 func (m *BitSetIndexToIndexMultiMap) Get(n int, v BitSet) (bool, error) {
-	return false, nil
+	if n < 0 || n >= m.keysCount {
+		return false, errOutOfBounds
+	}
+	offsetBytes := n * (m.size << 3)
+	elr := bytes.NewReader(m.elems[offsetBytes:])
+
+	b, ok := v.(*bitSet)
+	if !ok {
+		panic("implement me")
+	}
+
+	wordSize := bitSetWordSize(uint(b.size))
+	if wordSize != uint(m.size) {
+		return false, errors.New("size not equal")
+	}
+
+	var (
+		w uint64
+		notEmpty bool
+	)
+
+	for i := uint(0); i < wordSize; i++ {
+		if err := readUint64(elr, &w); err != nil {
+			return false, err
+		}
+		b.words[i] |= w
+		if b.words[i] != 0 {
+			notEmpty = true
+		}
+	}
+
+	return notEmpty, nil
 }
 
 func readUint32(r io.Reader, v *uint32) error {
