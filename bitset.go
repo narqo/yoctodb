@@ -2,7 +2,6 @@ package yoctodb
 
 import (
 	"sync"
-	"fmt"
 )
 
 type BitSet interface {
@@ -10,10 +9,13 @@ type BitSet interface {
 	Cardinality() int
 	Get(i int) bool
 	Set(i int)
+	Reset()
 }
 
 // readOnlyOneBitSet is a read-only one BitSet implementation.
 type readOnlyOneBitSet int
+
+var _ BitSet = readOnlyOneBitSet(5)
 
 func (b readOnlyOneBitSet) Size() int {
 	return int(b)
@@ -28,6 +30,10 @@ func (b readOnlyOneBitSet) Get(i int) bool {
 }
 
 func (b readOnlyOneBitSet) Set(i int) {
+	return
+}
+
+func (b readOnlyOneBitSet) Reset() {
 	return
 }
 
@@ -50,6 +56,10 @@ func (b readOnlyZeroBitSet) Set(i int) {
 	return
 }
 
+func (b readOnlyZeroBitSet) Reset() {
+	return
+}
+
 func bitSetWordSize(n uint) uint {
 	return uint(n) >> 6 + 1
 }
@@ -61,6 +71,8 @@ type bitSet struct {
 	size  int
 	words []uint64
 }
+
+var _ BitSet = &bitSet{}
 
 func NewBitSet(size int) BitSet {
 	wordSize := bitSetWordSize(uint(size))
@@ -104,6 +116,12 @@ func (b *bitSet) Set(i int) {
 	word := uint(i) >> 6  // i div 64
 	bit := uint64(i) & 63 // i mod 64
 	b.words[word] |= 1 << bit
+}
+
+func (b *bitSet) Reset() {
+	for i := 0; i < len(b.words); i++ {
+		b.words[i] = 0
+	}
 }
 
 var bitSetPool = sync.Pool{
