@@ -26,7 +26,7 @@ func main() {
 	assertTrue(db.count(doc2) == 1);
 	 */
 	doc2 := &yoctodb.Select{
-		Where: yoctodb.Eq("id", []byte("2")),
+		Where: yoctodb.Eq("color", []byte("FF0000")),
 	}
 	n, err := db.Count(doc2)
 	if err != nil {

@@ -1,16 +1,21 @@
 package yoctodb
 
-import "errors"
+import (
+	"errors"
+)
 
 type Query interface {
 	// filteredUnlimited calculates filtering result not taking into account skip/limit.
 	filteredUnlimited(db *DB) (BitSet, error)
+	limit() (uint, error)
+	offset() (uint, error)
 }
 
 type Select struct {
 	Where   Condition
 	OrderBy interface{} // TODO(varankinv): type orderBy
 	Limit   uint32
+	Offset  uint32
 }
 
 var _ Query = &Select{}
@@ -31,6 +36,14 @@ func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 		return nil, nil
 	}
 	return bs, nil
+}
+
+func (s *Select) limit() (uint, error) {
+	return uint(s.Limit), nil
+}
+
+func (s *Select) offset() (uint, error) {
+	return uint(s.Offset), nil
 }
 
 type Condition interface {
