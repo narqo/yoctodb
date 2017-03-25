@@ -103,3 +103,19 @@ func TestBitSet_Or(t *testing.T) {
 		t.Fatal("Or() with non-empty BitSets expected to not be empty")
 	}
 }
+
+func TestBitSet_Cardinality(t *testing.T) {
+	n := 5
+	b := NewBitSet(n)
+
+	if b.Cardinality() != 0 {
+		t.Fatal("Cardinality() of empty BitSet expect to be 0")
+	}
+
+	for i := 0; i < n; i++ {
+		b.Set(i)
+		if b.Cardinality() != i + 1 {
+			t.Fatalf("(%d) Cardinality() expected to be %d, got %d", i, i, b.Cardinality())
+		}
+	}
+}

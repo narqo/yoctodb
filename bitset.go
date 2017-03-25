@@ -7,10 +7,15 @@ import (
 )
 
 type BitSet interface {
+	// Size returns number of bits in BitSet.
 	Size() int
+	// Cardinality calculates number of ones.
 	Cardinality() int
+	// Test checks if i-th bit is set.
 	Test(i int) bool
+	// Set sets i-th bit.
 	Set(i int)
+	// Reset resets BitSet.
 	Reset()
 	And(b1 BitSet) (bool, error)
 	Or(b1 BitSet) (bool, error)
@@ -84,7 +89,7 @@ func bitSetWordSize(n uint) uint {
 	return uint(n)>>6 + 1
 }
 
-const wordOfOnes = ^uint64(0)
+const wordOfOnes = 1<<64 - 1
 
 // bitSet is a bit array.
 type bitSet struct {
@@ -116,8 +121,12 @@ func (b *bitSet) Size() int {
 	return b.size
 }
 
-func (b *bitSet) Cardinality() int {
-	panic("implement me")
+func (b *bitSet) Cardinality() (n int) {
+	wordSize := bitSetWordSize(uint(b.size))
+	for i := uint(0); i < wordSize; i++ {
+		n += int(popcount(b.words[i]))
+	}
+	return
 }
 
 func (b *bitSet) Test(i int) bool {
@@ -136,10 +145,6 @@ func (b *bitSet) Set(i int) {
 	word := uint(i) >> 6  // i div 64
 	bit := uint64(i) & 63 // i mod 64
 	b.words[word] |= 1 << bit
-}
-
-func Fill() {
-	panic("implement me")
 }
 
 func (b *bitSet) Reset() {
@@ -206,4 +211,15 @@ func (b *bitSet) Or(b1 BitSet) (bool, error) {
 
 var bitSetPool = sync.Pool{
 	New: func() interface{} { return new(bitSet) },
+}
+
+// popcount calculates bit population count (aka bitCount).
+// Credits to https://github.com/willf/bitset/pull/21
+func popcount(n uint64) uint64 {
+	n -= (n >> 1) & 0x5555555555555555
+	n = (n>>2)&0x3333333333333333 + n&0x3333333333333333
+	n += n >> 4
+	n &= 0x0f0f0f0f0f0f0f0f
+	n *= 0x0101010101010101
+	return n >> 56
 }
