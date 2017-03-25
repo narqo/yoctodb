@@ -19,7 +19,8 @@ func BenchmarkDB_Count(b *testing.B) {
 	}
 
 	doc2 := &yoctodb.Select{
-		Where: yoctodb.Eq("id", []byte("2")),
+		// intentionally counting the worth case
+		Where: yoctodb.Eq("id", []byte("autoru-xxxxxxxx")),
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
