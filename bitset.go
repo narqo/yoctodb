@@ -2,6 +2,7 @@ package yoctodb
 
 import (
 	"sync"
+	"fmt"
 )
 
 type BitSet interface {
@@ -53,6 +54,8 @@ func bitSetWordSize(n uint) uint {
 	return uint(n) >> 6 + 1
 }
 
+const wordOfOnes = ^uint64(0)
+
 // bitSet is a bit array.
 type bitSet struct {
 	size  int
@@ -60,7 +63,6 @@ type bitSet struct {
 }
 
 func NewBitSet(size int) BitSet {
-	NewBitSetOfOnes(size)
 	wordSize := bitSetWordSize(uint(size))
 	return &bitSet{size, make([]uint64, wordSize)}
 }
@@ -69,11 +71,11 @@ func NewBitSetOfOnes(size int) BitSet {
 	wordSize := bitSetWordSize(uint(size))
 	b := &bitSet{size, make([]uint64, wordSize)}
 	for i := 0; i < len(b.words) - 1; i++ {
-		b.words[i] = ^uint64(0)
+		b.words[i] = wordOfOnes
 	}
-	lastBits := uint(size) & 63
-	if lastBits != 0 {
-		b.words[len(b.words) - 1] = ^uint64(0) >> (64 - lastBits)
+	lastWordBit := uint(size) & 63 // size mod 64
+	if lastWordBit != 0 {
+		b.words[len(b.words) - 1] = ^(wordOfOnes << lastWordBit)
 	}
 	return b
 }
