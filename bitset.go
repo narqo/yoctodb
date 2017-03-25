@@ -12,8 +12,8 @@ type BitSet interface {
 	Test(i int) bool
 	Set(i int)
 	Reset()
-	And(b1 BitSet) error
-	Or(b1 BitSet) error
+	And(b1 BitSet) (bool, error)
+	Or(b1 BitSet) (bool, error)
 }
 
 // readOnlyOneBitSet is a read-only one BitSet implementation.
@@ -41,12 +41,12 @@ func (b readOnlyOneBitSet) Reset() {
 	return
 }
 
-func (b readOnlyOneBitSet) And(b1 BitSet) error {
-	return errors.New("read-only BitSet")
+func (b readOnlyOneBitSet) And(b1 BitSet) (bool, error) {
+	return false, errors.New("read-only BitSet")
 }
 
-func (b readOnlyOneBitSet) Or(b1 BitSet) error {
-	return errors.New("read-only BitSet")
+func (b readOnlyOneBitSet) Or(b1 BitSet) (bool, error) {
+	return false, errors.New("read-only BitSet")
 }
 
 // readOnlyZeroBitSet is a read-only zero BitSet implementation.
@@ -72,12 +72,12 @@ func (b readOnlyZeroBitSet) Reset() {
 	return
 }
 
-func (b readOnlyZeroBitSet) And(b1 BitSet) error {
-	return errors.New("read-only BitSet")
+func (b readOnlyZeroBitSet) And(b1 BitSet) (bool, error) {
+	return false, errors.New("read-only BitSet")
 }
 
-func (b readOnlyZeroBitSet) Or(b1 BitSet) error {
-	return errors.New("read-only BitSet")
+func (b readOnlyZeroBitSet) Or(b1 BitSet) (bool, error) {
+	return false, errors.New("read-only BitSet")
 }
 
 func bitSetWordSize(n uint) uint {
@@ -152,9 +152,9 @@ func (b *bitSet) Inverse() {
 	panic("implement me")
 }
 
-func (b *bitSet) And(b1 BitSet) error {
+func (b *bitSet) And(b1 BitSet) (bool, error) {
 	if b.Size() != b1.Size() {
-		return fmt.Errorf("BitSets of not equal sizes: %d, %d", b.Size(), b1.Size())
+		return false, fmt.Errorf("BitSets of not equal sizes: %d, %d", b.Size(), b1.Size())
 	}
 
 	var words []uint64
@@ -165,18 +165,22 @@ func (b *bitSet) And(b1 BitSet) error {
 		panic("implement me")
 	}
 
+	var notEmpty bool
 	wordSize := bitSetWordSize(uint(b.size))
 
 	for i := uint(0); i < wordSize; i++ {
 		b.words[i] &= words[i]
+		if b.words[i] != 0 {
+			notEmpty = true
+		}
 	}
 
-	return nil
+	return notEmpty, nil
 }
 
-func (b *bitSet) Or(b1 BitSet) error {
+func (b *bitSet) Or(b1 BitSet) (bool, error) {
 	if b.Size() != b1.Size() {
-		return fmt.Errorf("BitSets of not equal sizes: %d, %d", b.Size(), b1.Size())
+		return false, fmt.Errorf("BitSets of not equal sizes: %d, %d", b.Size(), b1.Size())
 	}
 
 	var words []uint64
@@ -187,13 +191,17 @@ func (b *bitSet) Or(b1 BitSet) error {
 		panic("implement me")
 	}
 
+	var notEmpty bool
 	wordSize := bitSetWordSize(uint(b.size))
 
 	for i := uint(0); i < wordSize; i++ {
 		b.words[i] |= words[i]
+		if b.words[i] != 0 {
+			notEmpty = true
+		}
 	}
 
-	return nil
+	return notEmpty, nil
 }
 
 var bitSetPool = sync.Pool{

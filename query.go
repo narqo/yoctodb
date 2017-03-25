@@ -77,7 +77,7 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 
 	tres := NewBitSet(v.Size())
 	for n := 2; n < len(*c); n++ {
-		//tres.Reset()
+		tres.Reset()
 
 		ok, err := c.setOne(n, db, tres)
 		if err != nil {
@@ -86,12 +86,15 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 		if !ok {
 			return false, nil
 		}
-		//if !res.And(tres) {
-		//	return false, nil
-		//}
+		anyBitSet, err := res.And(tres)
+		if err != nil {
+			return false, err
+		}
+		if !anyBitSet {
+			return false, nil
+		}
 	}
-	//return v.Or(res), nil
-	return false, nil
+	return v.Or(res)
 }
 
 func (c *And) setOne(n int, db *DB, v BitSet) (bool, error) {
