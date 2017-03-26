@@ -68,9 +68,14 @@ func (c *eqCondition) Set(db *DB, v BitSet) (bool, error) {
 	return index.Eq(c.Value, v)
 }
 
-type And []Condition
+func And(conditions ...Condition) Condition {
+	c := andCondition(conditions)
+	return &c
+}
 
-func (c *And) Set(db *DB, v BitSet) (bool, error) {
+type andCondition []Condition
+
+func (c *andCondition) Set(db *DB, v BitSet) (bool, error) {
 	if len(*c) == 0 {
 		return false, errors.New("no conditions")
 	}
@@ -114,6 +119,26 @@ func (c *And) Set(db *DB, v BitSet) (bool, error) {
 	return v.Or(res)
 }
 
-func (c *And) setOne(n int, db *DB, v BitSet) (bool, error) {
+func (c *andCondition) setOne(n int, db *DB, v BitSet) (bool, error) {
 	return (*c)[n].Set(db, v)
+}
+
+func Or(conditions ...Condition) Condition {
+	c := orCondition(conditions)
+	return &c
+}
+
+type orCondition []Condition
+
+func (c *orCondition) Set(db *DB, v BitSet) (res bool, err error) {
+	for n := 0; n < len(*c); n++ {
+		anyBitSet, err := (*c)[n].Set(db, v)
+		if err != nil {
+			return false, err
+		}
+		if anyBitSet {
+			res = true
+		}
+	}
+	return
 }
