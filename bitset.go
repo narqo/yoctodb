@@ -17,6 +17,8 @@ type BitSet interface {
 	Set(i int)
 	// Reset resets BitSet.
 	Reset()
+	// NextSet returns next set bit after i. If nothing found it returns -1.
+	NextSet(i int) int
 	And(b1 BitSet) (bool, error)
 	Or(b1 BitSet) (bool, error)
 }
@@ -44,6 +46,13 @@ func (b readOnlyOneBitSet) Set(i int) {
 
 func (b readOnlyOneBitSet) Reset() {
 	return
+}
+
+func (b readOnlyOneBitSet) NextSet(i int) int {
+	if i >= int(b) {
+		return -1
+	}
+	return i + 1
 }
 
 func (b readOnlyOneBitSet) And(b1 BitSet) (bool, error) {
@@ -75,6 +84,10 @@ func (b readOnlyZeroBitSet) Set(i int) {
 
 func (b readOnlyZeroBitSet) Reset() {
 	return
+}
+
+func (b readOnlyZeroBitSet) NextSet(i int) int {
+	return -1
 }
 
 func (b readOnlyZeroBitSet) And(b1 BitSet) (bool, error) {
@@ -162,6 +175,20 @@ func (b *bitSet) Reset() {
 	}
 }
 
+func (b *bitSet) NextSet(i int) int {
+	if i > b.size {
+		return -1
+	}
+	word := uint(i) >> 6
+	for word < uint(len(b.words)) {
+		if b.words[word] != 0 {
+			return int(word << 6 + trailingZeroes64(b.words[word]))
+		}
+		word += 1
+	}
+	return -1
+}
+
 func (b *bitSet) Inverse() {
 	panic("implement me")
 }
@@ -234,6 +261,17 @@ func AcquireBitSet(size int) BitSet {
 
 func ReleaseBitSet(b BitSet) {
 	bitSetPool.Put(b)
+}
+
+var deBruijn = [...]byte{
+	0, 1, 56, 2, 57, 49, 28, 3, 61, 58, 42, 50, 38, 29, 17, 4,
+	62, 47, 59, 36, 45, 43, 51, 22, 53, 39, 33, 30, 24, 18, 12, 5,
+	63, 55, 48, 27, 60, 41, 37, 16, 46, 35, 44, 21, 52, 32, 23, 11,
+	54, 26, 40, 15, 34, 20, 31, 10, 25, 14, 19, 9, 13, 8, 7, 6,
+}
+
+func trailingZeroes64(v uint64) uint {
+	return uint(deBruijn[((v&-v)*0x03f79d71b4ca8b09)>>58])
 }
 
 // popcount calculates bit population count (aka bitCount).

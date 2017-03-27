@@ -119,3 +119,28 @@ func TestBitSet_Cardinality(t *testing.T) {
 		}
 	}
 }
+
+func TestBitSet_NextSet(t *testing.T) {
+	n := 5
+	b := NewBitSet(n)
+	b.Set(1)
+	b.Set(2)
+	b.Set(4)
+
+	tests := []struct{
+		In int
+		Out int
+	}{
+		{ 0, 1 },
+		{ 1, 2 },
+		{ 2, 4 },
+		{ 3, 4 },
+	}
+
+	t.Logf("bitset: %064b\n", b)
+	for n, tc := range tests {
+		if b.NextSet(tc.In) != tc.Out {
+			t.Fatalf("case %d: NextSet(%d), want %d, got %d", n, tc.In, tc.Out, b.NextSet(tc.In))
+		}
+	}
+}
