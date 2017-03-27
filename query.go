@@ -5,8 +5,10 @@ import (
 )
 
 type Query interface {
-	// filteredUnlimited calculates filtering result not taking into account skip/limit.
+	// filteredUnlimited calculates filtering result not taking into account skip and limit.
 	filteredUnlimited(db *DB) (BitSet, error)
+	// sortedUnlimited returns sorted results not taking into account skip and limit.
+	sortedUnlimited(db *DB, v BitSet) error
 	limit() (uint, error)
 	offset() (uint, error)
 }
@@ -22,10 +24,10 @@ var _ Query = &Select{}
 
 func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 	if s.Where == nil {
-		bs := readOnlyOneBitSet(db.DocumentCount())
+		bs := readOnlyOneBitSet(db.DocumentsCount())
 		return bs, nil
 	}
-	bs := AcquireBitSet(db.DocumentCount())
+	bs := AcquireBitSet(db.DocumentsCount())
 	ok, err := s.Where.Set(db, bs)
 	if err != nil {
 		ReleaseBitSet(bs)
@@ -36,6 +38,13 @@ func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 		return nil, nil
 	}
 	return bs, nil
+}
+
+func (s *Select) sortedUnlimited(db *DB, v BitSet) error {
+	if s.OrderBy != nil {
+		panic("implement me")
+	}
+	return nil
 }
 
 func (s *Select) limit() (uint, error) {

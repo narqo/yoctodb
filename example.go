@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 
@@ -11,6 +12,8 @@ import (
 )
 
 func main() {
+	ctx := context.Background()
+
 	dbData, err := ioutil.ReadFile("testdata/index.yocto")
 	if err != nil {
 		panic(err)
@@ -26,10 +29,10 @@ func main() {
 	assertTrue(db.count(doc2) == 1);
 	 */
 
-	doc2 := &yoctodb.Select{
+	query := &yoctodb.Select{
 		Where: yoctodb.Eq("color", []byte("FF0000")),
 	}
-	n, err := db.Count(doc2)
+	n, err := db.Count(ctx, query)
 	if err != nil {
 		panic(err)
 	}

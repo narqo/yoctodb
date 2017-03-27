@@ -2,6 +2,7 @@ package yoctodb_test
 
 import (
 	"bytes"
+	"context"
 	"io/ioutil"
 	"testing"
 
@@ -18,13 +19,15 @@ func BenchmarkDB_Count(b *testing.B) {
 		panic(err)
 	}
 
+	ctx := context.TODO()
+
 	doc2 := &yoctodb.Select{
 		// intentionally counting the worth case
 		Where: yoctodb.Eq("id", []byte("autoru-xxxxxxxx")),
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		c, err := db.Count(doc2)
+		c, err := db.Count(ctx, doc2)
 		if err != nil {
 			b.Fatalf("error %v", err)
 		}
