@@ -17,7 +17,7 @@ type BitSet interface {
 	Set(i int)
 	// Reset resets BitSet.
 	Reset()
-	// NextSet returns next set bit after i. If nothing found it returns -1.
+	// NextSet returns set bit starting i. If nothing found it returns -1.
 	NextSet(i int) int
 	And(b1 BitSet) (bool, error)
 	Or(b1 BitSet) (bool, error)
@@ -180,6 +180,13 @@ func (b *bitSet) NextSet(i int) int {
 		return -1
 	}
 	word := uint(i) >> 6
+	w := b.words[word]
+	bit := uint64(i) & 63
+	w = w >> bit
+	if w != 0 {
+		return i + int(trailingZeroes64(w))
+	}
+	word += 1
 	for word < uint(len(b.words)) {
 		if b.words[word] != 0 {
 			return int(word << 6 + trailingZeroes64(b.words[word]))
