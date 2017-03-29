@@ -2,6 +2,7 @@ package yoctodb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 )
 
@@ -33,9 +34,9 @@ func (db *DB) Query(ctx context.Context, q Query) (*Documents, error) {
 	}
 
 	docs := &Documents{
-		db: db,
-		bs: bs,
-		currentDoc: bs.NextSet(0),
+		db:         db,
+		bs:         bs,
+		currentDoc: -1,
 	}
 	return docs, nil
 }
@@ -72,21 +73,40 @@ type Documents struct {
 	db *DB
 	bs BitSet
 
+	closed     bool
 	currentDoc int
 }
 
 func (d *Documents) Next() (ok bool) {
-	return d.currentDoc > 0
+	if d.closed {
+		return false
+	}
+	d.currentDoc = d.bs.NextSet(d.currentDoc + 1)
+	ok = d.currentDoc >= 0
+	if !ok {
+		d.Close()
+	}
+	return ok
 }
 
 func (d *Documents) Scan() error {
-	id := d.currentDoc
-	d.currentDoc = d.bs.NextSet(d.currentDoc + 1)
-	fmt.Printf("scan: id %d\n", id)
+	if d.closed {
+		return errors.New("documents are locked")
+	}
+	fmt.Printf("scan: id %d\n", d.currentDoc)
 	return nil
 }
 
-func (d *Documents) Close() {
+func (d *Documents) Close() error {
+	if d.closed {
+		return nil
+	}
+	d.closed = true
+	d.releaseBitSet()
+	return nil
+}
+
+func (d *Documents) releaseBitSet() {
 	ReleaseBitSet(d.bs)
 }
 
