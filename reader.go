@@ -18,10 +18,10 @@ const (
 )
 
 const (
-	// all documents have payload
+	// all Documents have payload
 	PayloadFull uint32 = 1 + iota
 
-	// no documents have any payload
+	// no Documents have any payload
 	PayloadNone
 )
 

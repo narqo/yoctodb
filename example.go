@@ -51,6 +51,7 @@ func main() {
 			//yoctodb.Gte{"id": 1},
 			//yoctodb.Lte{"id": 1},
 		),
+		Offset: 1,
 		//OrderBy: &yoctodb.Desc("score"),
 	}
 	docs, err := db.Query(ctx, sorted)

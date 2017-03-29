@@ -30,12 +30,18 @@ func (db *DB) Query(ctx context.Context, q Query) (*Documents, error) {
 		return nil, err
 	}
 	if bs == nil {
-		return nil, nil
+		bs = readOnlyZeroBitSet(db.DocumentsCount())
+	}
+
+	offset, err := q.offset()
+	if err != nil {
+		return nil, err
 	}
 
 	docs := &Documents{
 		db:         db,
 		bs:         bs,
+		skip:       int(offset),
 		currentDoc: -1,
 	}
 	return docs, nil
@@ -69,11 +75,13 @@ func (db *DB) Count(ctx context.Context, q Query) (int, error) {
 	return int(count), nil
 }
 
+// Documents is an iterable collection of query execution results.
 type Documents struct {
 	db *DB
 	bs BitSet
 
 	closed     bool
+	skip       int
 	currentDoc int
 }
 
@@ -91,7 +99,11 @@ func (d *Documents) Next() (ok bool) {
 
 func (d *Documents) Scan() error {
 	if d.closed {
-		return errors.New("documents are locked")
+		return errors.New("Documents are closes")
+	}
+	if d.skip > 0 {
+		d.skip -= 1
+		return nil
 	}
 	fmt.Printf("scan: id %d\n", d.currentDoc)
 	return nil

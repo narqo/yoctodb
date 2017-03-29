@@ -56,7 +56,7 @@ func (s *Select) offset() (uint, error) {
 }
 
 type Condition interface {
-	// Set sets bits for the documents satisfying condition and leave all the other bits untouched.
+	// Set sets bits for the Documents satisfying condition and leave all the other bits untouched.
 	Set(db *DB, v BitSet) (bool, error)
 }
 
