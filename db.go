@@ -3,7 +3,6 @@ package yoctodb
 import (
 	"context"
 	"errors"
-	"fmt"
 )
 
 type DB struct {
@@ -97,16 +96,23 @@ func (d *Documents) Next() (ok bool) {
 	return ok
 }
 
-func (d *Documents) Scan() error {
+func (d *Documents) Scan(p DocumentProcessor) error {
 	if d.closed {
 		return errors.New("Documents are closes")
 	}
+	if d.currentDoc == -1 {
+		return errors.New("Scan called without Next")
+	}
+
 	if d.skip > 0 {
 		d.skip -= 1
 		return nil
 	}
-	fmt.Printf("scan: id %d\n", d.currentDoc)
-	return nil
+
+	if p == nil {
+		return errors.New("no DocumentProcessor passed")
+	}
+	return p.Process(d.db, d.currentDoc)
 }
 
 func (d *Documents) Close() error {
@@ -124,4 +130,8 @@ func (d *Documents) releaseBitSet() {
 
 func (d *Documents) Err() error {
 	return nil
+}
+
+type DocumentProcessor interface {
+	Process(db *DB, d int) error
 }

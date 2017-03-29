@@ -59,9 +59,26 @@ func main() {
 		panic(err)
 	}
 	defer docs.Close()
+
+	statDocs := &DocsProcessor{}
+
 	for docs.Next() {
-		if err := docs.Scan(); err != nil {
+		if err := docs.Scan(statDocs); err != nil {
 			fmt.Printf("error: %v", err)
 		}
 	}
+}
+
+type DocsProcessor struct {
+
+}
+
+func (p *DocsProcessor) Process(db *yoctodb.DB, d int) error {
+	fmt.Printf("process: document %d\n", d)
+	//rawData, err := db.Document(d)
+	if err != nil {
+		return err
+	}
+	//fmt.Printf("process: data %s\n", rawData)
+	return nil
 }
