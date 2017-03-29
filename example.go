@@ -45,16 +45,22 @@ func main() {
                         .orderBy(desc("score"));
 	db.execute(sorted, ...)
 	 */
-	/*
-	TODO(varankinv): filter and sort example
 	sorted := &yoctodb.Select{
-		Where: &yoctodb.And{
-			&yoctodb.Gte{"id": 1},
-			&yoctodb.Lte{"id": 1},
-		},
-		OrderBy: &yoctodb.Desc("score"),
+		Where: yoctodb.And(
+			yoctodb.Eq("wheel_key", []byte("LEFT")),
+			//yoctodb.Gte{"id": 1},
+			//yoctodb.Lte{"id": 1},
+		),
+		//OrderBy: &yoctodb.Desc("score"),
 	}
-	//err := db.DoProcess(sorted, func() error {})
-	err := db.Do(sorted)
-	*/
+	docs, err := db.Query(ctx, sorted)
+	if err != nil {
+		panic(err)
+	}
+	defer docs.Close()
+	for docs.Next() {
+		if err := docs.Scan(); err != nil {
+			fmt.Printf("error: %v", err)
+		}
+	}
 }

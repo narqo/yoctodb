@@ -1,6 +1,9 @@
 package yoctodb
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type DB struct {
 	filters map[string]*FilterableIndex
@@ -28,9 +31,13 @@ func (db *DB) Query(ctx context.Context, q Query) (*Documents, error) {
 	if bs == nil {
 		return nil, nil
 	}
-	defer ReleaseBitSet(bs)
 
-	return nil, nil
+	docs := &Documents{
+		db: db,
+		bs: bs,
+		currentDoc: bs.NextSet(0),
+	}
+	return docs, nil
 }
 
 func (db *DB) Count(ctx context.Context, q Query) (int, error) {
@@ -62,5 +69,27 @@ func (db *DB) Count(ctx context.Context, q Query) (int, error) {
 }
 
 type Documents struct {
+	db *DB
+	bs BitSet
 
+	currentDoc int
+}
+
+func (d *Documents) Next() (ok bool) {
+	return d.currentDoc > 0
+}
+
+func (d *Documents) Scan() error {
+	id := d.currentDoc
+	d.currentDoc = d.bs.NextSet(d.currentDoc + 1)
+	fmt.Printf("scan: id %d\n", id)
+	return nil
+}
+
+func (d *Documents) Close() {
+	ReleaseBitSet(d.bs)
+}
+
+func (d *Documents) Err() error {
+	return nil
 }
