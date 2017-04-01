@@ -7,7 +7,7 @@ import (
 
 type DB struct {
 	filters map[string]*FilterableIndex
-	//sorters map[string]*SortableIndex
+	sorters map[string]*SortableIndex
 	payload *Payload
 }
 
@@ -112,7 +112,11 @@ func (d *Documents) Scan(p DocumentProcessor) error {
 	if p == nil {
 		return errors.New("no DocumentProcessor passed")
 	}
-	return p.Process(d.db, d.currentDoc)
+	rawData, err := d.db.Document(d.currentDoc)
+	if err != nil {
+		return err
+	}
+	return p.Process(d.currentDoc, rawData)
 }
 
 func (d *Documents) Close() error {
@@ -129,9 +133,10 @@ func (d *Documents) releaseBitSet() {
 }
 
 func (d *Documents) Err() error {
+	// TODO(varankinv): Documents.Err()
 	return nil
 }
 
 type DocumentProcessor interface {
-	Process(db *DB, d int) error
+	Process(d int, rawData []byte) error
 }

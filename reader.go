@@ -27,16 +27,16 @@ const (
 
 const (
 	// filterable segment of fixed length elements
-	FixedLenFilterSegment uint32 = 1000 * (1 + iota)
+	FixedLenFilterableIndex uint32 = 1000 * (1 + iota)
 
 	// filterable segment of variable length elements
-	VarLenFilterSegment
+	VarLenFilterableIndex
 
 	// sortable segment of fixed length elements
-	FixedLenSortableIndexSegment
+	FixedLenSortableIndex
 
 	// sortable segment of variable length elements
-	VarLenSortableIndexSegment
+	VarLenSortableIndex
 
 	// full segment of fixed length elements
 	FixedLenFullIndexSegment
@@ -110,6 +110,7 @@ func readDB(data io.Reader, verifyChecksum bool) (*DB, error) {
 
 	db := &DB{
 		filters: make(map[string]*FilterableIndex),
+		sorters: make(map[string]*SortableIndex),
 	}
 
 	sr := NewSegmentReader(bytes.NewReader(body))
@@ -130,6 +131,12 @@ func readDB(data io.Reader, verifyChecksum bool) (*DB, error) {
 				return nil, fmt.Errorf("duplicate filterable index for field %q", s.Name)
 			}
 			db.filters[s.Name] = s
+
+		case *SortableIndex:
+			if _, ok := db.sorters[s.Name]; ok {
+				return nil, fmt.Errorf("duplicate sortable index for field %q", s.Name)
+			}
+			db.sorters[s.Name] = s
 		}
 	}
 
@@ -192,14 +199,20 @@ func (s *SegmentReader) ReadSegment() (v interface{}, err error) {
 		}
 		segment = &EmptyPayload{int(size)}
 
-	case FixedLenFilterSegment, VarLenFilterSegment:
+	case FixedLenFilterableIndex, VarLenFilterableIndex:
 		segment, err = s.readFilterable(sr, typ)
+		if err != nil {
+			return nil, err
+		}
+
+	case FixedLenSortableIndex, VarLenSortableIndex:
+		segment, err = s.readSortable(sr, typ)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	//fmt.Printf("read segment: %#v\n", segment)
+	fmt.Printf("read segment %d: %#v\n", typ, segment)
 
 	// skip to next segment
 	if _, err := s.r.Seek(s.offset, io.SeekStart); err != nil {
@@ -209,68 +222,102 @@ func (s *SegmentReader) ReadSegment() (v interface{}, err error) {
 	return segment, nil
 }
 
-func (s *SegmentReader) readFilterable(r io.Reader, typ uint32) (v *FilterableIndex, err error) {
-	var segmentName []byte
-	if err := readBytes(r, &segmentName); err != nil {
-		return nil, err
+func (s *SegmentReader) readCommonSegmentFields(r io.Reader, typ uint32) (string, SortedSet, IndexToIndexMultiMap, error) {
+	var rawName []byte
+	if err := readBytes(r, &rawName); err != nil {
+		return "", nil, nil, err
 	}
+	segmentName := string(rawName)
 
 	var chunkLen uint64
-
 	if err := readUint64(r, &chunkLen); err != nil {
-		return nil, err
+		return segmentName, nil, nil, err
 	}
 	if chunkLen == 0 {
-		return nil, errors.New("empty segment")
+		return segmentName, nil, nil, errors.New("empty segment")
 	}
 
-	var valsSet SortedSet
+	var (
+		vals      SortedSet
+		valToDocs IndexToIndexMultiMap
+		err       error
+	)
 
-	if typ == FixedLenFilterSegment {
+	if typ == FixedLenFilterableIndex || typ == FixedLenSortableIndex {
 		r := io.LimitReader(r, int64(chunkLen))
-		valsSet, err = NewFixedLenSortedSet(r)
+		vals, err = NewFixedLenSortedSet(r)
 		if err != nil {
-			return nil, fmt.Errorf("could not read segment values set %d: %v", typ, err)
+			return segmentName, nil, nil, fmt.Errorf("could not read segment values set %d: %v", typ, err)
 		}
-	} else if typ == VarLenFilterSegment {
+	} else if typ == VarLenFilterableIndex || typ == VarLenSortableIndex {
 		r := io.LimitReader(r, int64(chunkLen))
-		valsSet, err = NewVarLenSortedSet(r)
+		vals, err = NewVarLenSortedSet(r)
 		if err != nil {
-			return nil, fmt.Errorf("could not read segment valsSet %d: %v", typ, err)
+			return segmentName, nil, nil, fmt.Errorf("could not read segment values set %d: %v", typ, err)
 		}
 	} else {
-		return nil, fmt.Errorf("unknown filterable segment type: %d", typ)
+		return segmentName, nil, nil, fmt.Errorf("unknown filterable segment type: %d", typ)
 	}
 
 	if err := readUint64(r, &chunkLen); err != nil {
-		return nil, err
+		return segmentName, nil, nil, err
 	}
 	if chunkLen == 0 {
-		return nil, errors.New("empty segment")
+		return segmentName, nil, nil, errors.New("empty segment")
 	}
 
 	idxr := io.LimitReader(r, int64(chunkLen))
 
 	var mmtyp uint32
 	if err := readUint32(idxr, &mmtyp); err != nil {
-		return nil, err
+		return segmentName, nil, nil, err
 	}
-
-	var docs IndexToIndexMultiMap
 
 	switch mmtyp {
 	case multimapListBased:
 	case multimapBitSetBased:
-		docs, err = NewBitSetIndexToIndexMultiMap(idxr)
+		valToDocs, err = NewBitSetIndexToIndexMultiMap(idxr)
 		if err != nil {
-			return nil, fmt.Errorf("could not read segment docs %d: %v", typ, err)
+			return segmentName, nil, nil, fmt.Errorf("could not read segment valToDocs %d: %v", typ, err)
 		}
+	default:
+		return segmentName, nil, nil, fmt.Errorf("unknown multimap type %d", mmtyp)
+	}
+
+	return segmentName, vals, valToDocs, nil
+}
+
+func (s *SegmentReader) readFilterable(r io.Reader, typ uint32) (*FilterableIndex, error) {
+	segmentName, vals, valToDocs, err := s.readCommonSegmentFields(r, typ)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read segment %q: %v", segmentName, err)
 	}
 
 	segment := &FilterableIndex{
-		Name: string(segmentName),
-		vals: valsSet,
-		docs: docs,
+		Name:      segmentName,
+		vals:      vals,
+		valToDocs: valToDocs,
+	}
+	return segment, nil
+}
+
+func (s *SegmentReader) readSortable(r io.Reader, typ uint32) (*SortableIndex, error) {
+	segmentName, vals, valToDocs, err := s.readCommonSegmentFields(r, typ)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read segment %q: %v", segmentName, err)
+	}
+
+	docToVals, err := NewIntIndexToIndexMap(r)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read segment %q: could not read segment docToVals %d: %v",
+			segmentName, typ, err)
+	}
+
+	segment := &SortableIndex{
+		Name:      segmentName,
+		vals:      vals,
+		valToDocs: valToDocs,
+		docToVals: docToVals,
 	}
 	return segment, nil
 }
@@ -310,22 +357,36 @@ type IndexToIndexMultiMap interface {
 	Get(n int, v BitSet) (bool, error)
 }
 
-// TODO(varankinv): IndexToIndexMap
+// IndexToIndexMap stores a direct mapping from a document index to the value index.
+type IndexToIndexMap interface {
+	Get(n int) (int, error)
+}
 
 // TODO(varankinv): ByteArrayIndexedList
 
 // FilterableIndex is a filterable segment for each named filterable field.
 type FilterableIndex struct {
-	Name string
-	vals SortedSet
-	docs IndexToIndexMultiMap
+	Name      string
+	vals      SortedSet
+	valToDocs IndexToIndexMultiMap
 }
 
 func (f *FilterableIndex) Eq(val []byte, v BitSet) (bool, error) {
 	if n := f.vals.Index(val); n != -1 {
-		return f.docs.Get(n, v)
+		return f.valToDocs.Get(n, v)
 	}
 	return false, nil
+}
+
+// SortableIndex is a sortable segment for each named sortable field.
+//
+// SortableIndex contains all fields that FilterableIndex do and a persistent
+// collection directly mapping a document index to the value index.
+type SortableIndex struct {
+	Name      string
+	vals      SortedSet
+	valToDocs IndexToIndexMultiMap
+	docToVals IndexToIndexMap
 }
 
 // Payload is an import payload segment.
@@ -348,13 +409,13 @@ type EmptyPayload struct {
 
 var errOutOfBounds = errors.New("out of bounds")
 
-type FixedLenSortedSet struct {
+type fixedLenSortedSet struct {
 	size     int
 	elemSize int
 	elems    []byte
 }
 
-func NewFixedLenSortedSet(r io.Reader) (*FixedLenSortedSet, error) {
+func NewFixedLenSortedSet(r io.Reader) (*fixedLenSortedSet, error) {
 	var err error
 
 	var size, elemSize uint32
@@ -370,7 +431,7 @@ func NewFixedLenSortedSet(r io.Reader) (*FixedLenSortedSet, error) {
 		return nil, err
 	}
 
-	res := &FixedLenSortedSet{
+	res := &fixedLenSortedSet{
 		size:     int(size),
 		elemSize: int(elemSize),
 		elems:    data,
@@ -379,7 +440,7 @@ func NewFixedLenSortedSet(r io.Reader) (*FixedLenSortedSet, error) {
 	return res, nil
 }
 
-func (v *FixedLenSortedSet) Get(i int) ([]byte, error) {
+func (v *fixedLenSortedSet) Get(i int) ([]byte, error) {
 	if i < 0 || i >= v.size {
 		return nil, errOutOfBounds
 	}
@@ -391,7 +452,7 @@ func (v *FixedLenSortedSet) Get(i int) ([]byte, error) {
 	return buf, nil
 }
 
-func (v *FixedLenSortedSet) Compare(i int, val []byte) (int, error) {
+func (v *fixedLenSortedSet) Compare(i int, val []byte) (int, error) {
 	if i < 0 || i >= v.size {
 		return 0, errOutOfBounds
 	}
@@ -399,21 +460,21 @@ func (v *FixedLenSortedSet) Compare(i int, val []byte) (int, error) {
 	return bytes.Compare(v.elems[start:v.elemSize], val), nil
 }
 
-func (v *FixedLenSortedSet) Size() int {
+func (v *fixedLenSortedSet) Size() int {
 	return v.size
 }
 
-func (v *FixedLenSortedSet) Index(val []byte) int {
+func (v *fixedLenSortedSet) Index(val []byte) int {
 	return sortedSetIndexByte(v, val)
 }
 
-type VarLenSortedSet struct {
+type varLenSortedSet struct {
 	size    int
 	offsets []byte
 	elems   []byte
 }
 
-func NewVarLenSortedSet(r io.Reader) (*VarLenSortedSet, error) {
+func NewVarLenSortedSet(r io.Reader) (*varLenSortedSet, error) {
 	var err error
 
 	var size uint32
@@ -427,7 +488,7 @@ func NewVarLenSortedSet(r io.Reader) (*VarLenSortedSet, error) {
 		return nil, err
 	}
 
-	res := &VarLenSortedSet{
+	res := &varLenSortedSet{
 		size:    int(size),
 		offsets: data[:offsetsLen],
 		elems:   data[offsetsLen:],
@@ -436,7 +497,7 @@ func NewVarLenSortedSet(r io.Reader) (*VarLenSortedSet, error) {
 	return res, nil
 }
 
-func (v *VarLenSortedSet) Get(i int) ([]byte, error) {
+func (v *varLenSortedSet) Get(i int) ([]byte, error) {
 	if i < 0 || i >= v.size {
 		return nil, errOutOfBounds
 	}
@@ -455,7 +516,7 @@ func (v *VarLenSortedSet) Get(i int) ([]byte, error) {
 	return buf, nil
 }
 
-func (v *VarLenSortedSet) Compare(i int, val []byte) (int, error) {
+func (v *varLenSortedSet) Compare(i int, val []byte) (int, error) {
 	if i < 0 || i >= v.size {
 		return 0, errOutOfBounds
 	}
@@ -469,11 +530,11 @@ func (v *VarLenSortedSet) Compare(i int, val []byte) (int, error) {
 	return bytes.Compare(v.elems[start:end], val), nil
 }
 
-func (v *VarLenSortedSet) Size() int {
+func (v *varLenSortedSet) Size() int {
 	return v.size
 }
 
-func (v *VarLenSortedSet) Index(val []byte) int {
+func (v *varLenSortedSet) Index(val []byte) int {
 	return sortedSetIndexByte(v, val)
 }
 
@@ -498,19 +559,20 @@ func sortedSetIndexByte(v SortedSet, val []byte) int {
 	return -1
 }
 
-type BitSetIndexToIndexMultiMap struct {
+type bitSetIndexToIndexMultiMap struct {
 	keysCount int
 	size      int
 	elems     []byte
 }
 
-func NewBitSetIndexToIndexMultiMap(r io.Reader) (*BitSetIndexToIndexMultiMap, error) {
-	var n uint32
+var _ IndexToIndexMultiMap = &bitSetIndexToIndexMultiMap{}
 
+func NewBitSetIndexToIndexMultiMap(r io.Reader) (*bitSetIndexToIndexMultiMap, error) {
+	var n uint32
 	if err := readUint32(r, &n); err != nil {
 		return nil, err
 	}
-	res := &BitSetIndexToIndexMultiMap{
+	res := &bitSetIndexToIndexMultiMap{
 		keysCount: int(n),
 	}
 
@@ -527,7 +589,7 @@ func NewBitSetIndexToIndexMultiMap(r io.Reader) (*BitSetIndexToIndexMultiMap, er
 	return res, nil
 }
 
-func (m *BitSetIndexToIndexMultiMap) Get(n int, v BitSet) (bool, error) {
+func (m *bitSetIndexToIndexMultiMap) Get(n int, v BitSet) (bool, error) {
 	if n < 0 || n >= m.keysCount {
 		return false, errOutOfBounds
 	}
@@ -559,6 +621,37 @@ func (m *BitSetIndexToIndexMultiMap) Get(n int, v BitSet) (bool, error) {
 	}
 
 	return notEmpty, nil
+}
+
+type intIndexToIndexMap struct {
+	size  int
+	elems []byte
+}
+
+var _ IndexToIndexMap = &intIndexToIndexMap{}
+
+func NewIntIndexToIndexMap(r io.Reader) (*intIndexToIndexMap, error) {
+	var n uint32
+	if err := readUint32(r, &n); err != nil {
+		return nil, err
+	}
+	res := &intIndexToIndexMap{
+		size: int(n),
+	}
+	var err error
+	if res.elems, err = ioutil.ReadAll(r); err != nil {
+		return nil, err
+	}
+
+	return res, nil
+}
+
+func (m *intIndexToIndexMap) Get(n int) (int, error) {
+	if n < 0 || n >= m.size {
+		return 0, errOutOfBounds
+	}
+	k := uint64(n) << 2
+	return int(binary.BigEndian.Uint32(m.elems[k:])), nil
 }
 
 func readUint64(r io.Reader, v *uint64) error {
