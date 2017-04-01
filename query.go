@@ -5,17 +5,16 @@ import (
 )
 
 type Query interface {
-	// filteredUnlimited calculates filtering result not taking into account skip and limit.
+	// filteredUnlimited calculates filtering result.
 	filteredUnlimited(db *DB) (BitSet, error)
-	// sortedUnlimited returns sorted results not taking into account skip and limit.
-	sortedUnlimited(db *DB, v BitSet) error
+	exec(db *DB) (*Documents, error)
 	limit() (uint, error)
 	offset() (uint, error)
 }
 
 type Select struct {
 	Where   Condition
-	OrderBy interface{} // TODO(varankinv): type orderBy
+	OrderBy Scorer
 	Limit   uint32
 	Offset  uint32
 }
@@ -40,11 +39,38 @@ func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 	return bs, nil
 }
 
-func (s *Select) sortedUnlimited(db *DB, v BitSet) error {
-	if s.OrderBy != nil {
-		panic("implement me")
+func (s *Select) exec(db *DB) (*Documents, error) {
+	bs, err := s.filteredUnlimited(db)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	if bs == nil {
+		bs = readOnlyZeroBitSet(db.DocumentsCount())
+	}
+
+	offset, err := s.offset()
+	if err != nil {
+		return nil, err
+	}
+
+	var scorer Scorer
+	if s.OrderBy == nil {
+		scorer = &idScorer{
+			db: db,
+			bs: bs,
+		}
+	} else {
+		scorer = s.OrderBy
+		scorer.init(db, bs)
+	}
+
+	docs := &Documents{
+		db:         db,
+		scorer:     scorer,
+		skip:       int(offset),
+		currentDoc: -1,
+	}
+	return docs, nil
 }
 
 func (s *Select) limit() (uint, error) {
@@ -65,7 +91,7 @@ func Eq(name string, val []byte) Condition {
 }
 
 type eqCondition struct {
-	Name string
+	Name  string
 	Value []byte
 }
 
@@ -150,4 +176,121 @@ func (c *orCondition) Set(db *DB, v BitSet) (res bool, err error) {
 		}
 	}
 	return
+}
+
+// Scorer is an iterator over documents matching query.
+type Scorer interface {
+	init(db *DB, bs BitSet)
+	next(n int) (int, bool)
+	close() error
+}
+
+type idScorer struct {
+	db *DB
+	bs BitSet
+}
+
+func (s *idScorer) init(db *DB, bs BitSet) {
+	return
+}
+
+func (s *idScorer) next(n int) (int, bool) {
+	n = s.bs.NextSet(n)
+	ok := n >= 0
+	if !ok {
+		s.close()
+	}
+	return n, ok
+}
+
+func (s *idScorer) close() error {
+	if s.bs != nil {
+		ReleaseBitSet(s.bs)
+		s.bs = nil
+	}
+	return nil
+}
+
+type sortingScorer struct {
+	db    *DB
+	bs    BitSet
+	sorts []string
+}
+
+func (s *sortingScorer) init(db *DB, bs BitSet) {
+	s.db = db
+	s.bs = bs
+	return
+}
+
+func Asc(name ...string) Scorer {
+	return nil
+}
+
+func Desc(name ...string) Scorer {
+	return nil
+}
+
+// Documents is an iterable collection of query execution results.
+type Documents struct {
+	db     *DB
+	scorer Scorer
+
+	closed     bool
+	skip       int
+	currentDoc int
+}
+
+func (d *Documents) Next() (ok bool) {
+	if d.closed {
+		return false
+	}
+	d.currentDoc, ok = d.scorer.next(d.currentDoc + 1)
+	if !ok {
+		d.Close()
+	}
+	return ok
+}
+
+func (d *Documents) Scan(p DocumentProcessor) error {
+	if d.closed {
+		return errors.New("Documents are closes")
+	}
+	if d.currentDoc == -1 {
+		return errors.New("Scan called without Next")
+	}
+
+	if d.skip > 0 {
+		d.skip -= 1
+		return nil
+	}
+
+	if p == nil {
+		return errors.New("no DocumentProcessor passed")
+	}
+	rawData, err := d.db.Document(d.currentDoc)
+	if err != nil {
+		return err
+	}
+	return p.Process(d.currentDoc, rawData)
+}
+
+func (d *Documents) Close() error {
+	if d.closed {
+		return nil
+	}
+	if err := d.scorer.close(); err != nil {
+		return err
+	}
+	d.closed = true
+	return nil
+}
+
+func (d *Documents) Err() error {
+	// TODO(varankinv): Documents.Err()
+	return nil
+}
+
+type DocumentProcessor interface {
+	Process(d int, rawData []byte) error
 }

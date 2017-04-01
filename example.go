@@ -52,7 +52,7 @@ func main() {
 			//yoctodb.Lte{"id": 1},
 		),
 		Offset: 1,
-		//OrderBy: &yoctodb.Desc("score"),
+		OrderBy: yoctodb.Desc("mark_model_sort"),
 	}
 	docs, err := db.Query(ctx, sorted)
 	if err != nil {
@@ -73,8 +73,8 @@ type DocsProcessor struct {
 
 }
 
-func (p *DocsProcessor) Process(db *yoctodb.DB, d int) error {
-	fmt.Printf("process: document %d\n", d)
+func (p *DocsProcessor) Process(i int, rawData []byte) (err error) {
+	fmt.Printf("process: document %d\n", i)
 	//rawData, err := db.Document(d)
 	if err != nil {
 		return err
