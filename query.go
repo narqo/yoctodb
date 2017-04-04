@@ -238,13 +238,13 @@ func newSortingScorer(db *DB, bs BitSet, order int, sorts ...string) Scorer {
 }
 
 func Asc(sorts ...string) newScorerFunc {
-	return newScorerFunc(func(db *DB, bs bitSet) Scorer {
+	return newScorerFunc(func(db *DB, bs BitSet) Scorer {
 		return newSortingScorer(db, bs, 1, sorts...)
 	})
 }
 
 func Desc(sorts ...string) newScorerFunc {
-	return newScorerFunc(func(db *DB, bs bitSet) Scorer {
+	return newScorerFunc(func(db *DB, bs BitSet) Scorer {
 		return newSortingScorer(db, bs, -1, sorts...)
 	})
 }
