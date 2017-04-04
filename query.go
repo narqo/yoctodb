@@ -14,7 +14,7 @@ type Query interface {
 
 type Select struct {
 	Where   Condition
-	OrderBy Scorer
+	OrderBy newScorerFunc
 	Limit   uint32
 	Offset  uint32
 }
@@ -54,14 +54,13 @@ func (s *Select) exec(db *DB) (*Documents, error) {
 	}
 
 	var scorer Scorer
-	if s.OrderBy == nil {
+	if s.OrderBy != nil {
+		scorer = s.OrderBy(db, bs)
+	} else {
 		scorer = &idScorer{
 			db: db,
 			bs: bs,
 		}
-	} else {
-		scorer = s.OrderBy
-		scorer.init(db, bs)
 	}
 
 	docs := &Documents{
@@ -180,7 +179,6 @@ func (c *orCondition) Set(db *DB, v BitSet) (res bool, err error) {
 
 // Scorer is an iterator over documents matching query.
 type Scorer interface {
-	init(db *DB, bs BitSet)
 	next(n int) (int, bool)
 	close() error
 }
@@ -188,10 +186,6 @@ type Scorer interface {
 type idScorer struct {
 	db *DB
 	bs BitSet
-}
-
-func (s *idScorer) init(db *DB, bs BitSet) {
-	return
 }
 
 func (s *idScorer) next(n int) (int, bool) {
@@ -212,23 +206,47 @@ func (s *idScorer) close() error {
 }
 
 type sortingScorer struct {
-	db    *DB
-	bs    BitSet
-	sorts []string
+	db      *DB
+	bs      BitSet
+	sorts   []string
+	indexes []*SortableIndex
 }
 
-func (s *sortingScorer) init(db *DB, bs BitSet) {
-	s.db = db
-	s.bs = bs
-	return
+func (s *sortingScorer) next(n int) (int, bool) {
+	panic("implement me")
 }
 
-func Asc(name ...string) Scorer {
-	return nil
+func (s *sortingScorer) close() error {
+	panic("implement me")
 }
 
-func Desc(name ...string) Scorer {
-	return nil
+type newScorerFunc func(db *DB, bs BitSet) Scorer
+
+func newSortingScorer(db *DB, bs BitSet, order int, sorts ...string) Scorer {
+	scorer := &sortingScorer{
+		db: db,
+		bs: bs,
+		sorts: sorts,
+		indexes: make([]*SortableIndex, len(sorts)),
+	}
+
+	for i, name := range sorts {
+		scorer.indexes[i] = db.Sorter(name)
+	}
+
+	return scorer
+}
+
+func Asc(sorts ...string) newScorerFunc {
+	return newScorerFunc(func(db *DB, bs bitSet) Scorer {
+		return newSortingScorer(db, bs, 1, sorts...)
+	})
+}
+
+func Desc(sorts ...string) newScorerFunc {
+	return newScorerFunc(func(db *DB, bs bitSet) Scorer {
+		return newSortingScorer(db, bs, -1, sorts...)
+	})
 }
 
 // Documents is an iterable collection of query execution results.
