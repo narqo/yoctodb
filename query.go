@@ -26,14 +26,14 @@ func (s *Select) filteredUnlimited(db *DB) (BitSet, error) {
 		bs := readOnlyOneBitSet(db.DocumentsCount())
 		return bs, nil
 	}
-	bs := AcquireBitSet(db.DocumentsCount())
+	bs := acquireBitSet(db.DocumentsCount())
 	ok, err := s.Where.Set(db, bs)
 	if err != nil {
-		ReleaseBitSet(bs)
+		releaseBitSet(bs)
 		return nil, err
 	}
 	if !ok {
-		ReleaseBitSet(bs)
+		releaseBitSet(bs)
 		return nil, nil
 	}
 	return bs, nil
@@ -117,8 +117,8 @@ func (c *andCondition) Set(db *DB, v BitSet) (bool, error) {
 		return c.setOne(0, db, v)
 	}
 
-	res := AcquireBitSet(v.Size())
-	defer ReleaseBitSet(res)
+	res := acquireBitSet(v.Size())
+	defer releaseBitSet(res)
 
 	ok, err := c.setOne(0, db, res)
 	if err != nil {
@@ -128,8 +128,8 @@ func (c *andCondition) Set(db *DB, v BitSet) (bool, error) {
 		return false, nil
 	}
 
-	claRes := AcquireBitSet(v.Size())
-	defer ReleaseBitSet(claRes)
+	claRes := acquireBitSet(v.Size())
+	defer releaseBitSet(claRes)
 
 	for n := 1; n < len(*c); n++ {
 		claRes.Reset()
@@ -199,7 +199,7 @@ func (s *idScorer) next(n int) (int, bool) {
 
 func (s *idScorer) close() error {
 	if s.bs != nil {
-		ReleaseBitSet(s.bs)
+		releaseBitSet(s.bs)
 		s.bs = nil
 	}
 	return nil

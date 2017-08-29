@@ -38,7 +38,7 @@ func (db *DB) Count(ctx context.Context, q Query) (int, error) {
 	if bs == nil {
 		return 0, nil
 	}
-	defer ReleaseBitSet(bs)
+	defer releaseBitSet(bs)
 
 	offset, err := q.offset()
 	if err != nil {

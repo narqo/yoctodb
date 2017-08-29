@@ -3,6 +3,7 @@ package yoctodb
 import (
 	"errors"
 	"fmt"
+	"math/bits"
 	"sync"
 )
 
@@ -110,14 +111,14 @@ type bitSet struct {
 	words []uint64
 }
 
-var _ BitSet = &bitSet{}
+var _ BitSet = (*bitSet)(nil)
 
-func NewBitSet(size int) BitSet {
+func newBitSet(size int) BitSet {
 	wordSize := bitSetWordSize(uint(size))
 	return &bitSet{size, make([]uint64, wordSize)}
 }
 
-func NewBitSetOfOnes(size int) BitSet {
+func newBitSetOfOnes(size int) BitSet {
 	wordSize := bitSetWordSize(uint(size))
 	b := &bitSet{size, make([]uint64, wordSize)}
 	for i := 0; i < len(b.words)-1; i++ {
@@ -146,7 +147,7 @@ func (b *bitSet) Size() int {
 func (b *bitSet) Cardinality() (n int) {
 	wordSize := bitSetWordSize(uint(b.size))
 	for i := uint(0); i < wordSize; i++ {
-		n += int(popcount(b.words[i]))
+		n += bits.OnesCount64(b.words[i])
 	}
 	return
 }
@@ -184,12 +185,12 @@ func (b *bitSet) NextSet(i int) int {
 	bit := uint64(i) & 63
 	w = w >> bit
 	if w != 0 {
-		return i + int(trailingZeroes64(w))
+		return i + bits.TrailingZeros64(w)
 	}
 	word += 1
 	for word < uint(len(b.words)) {
 		if b.words[word] != 0 {
-			return int(word << 6 + trailingZeroes64(b.words[word]))
+			return int(word) << 6 + bits.TrailingZeros64(b.words[word])
 		}
 		word += 1
 	}
@@ -254,40 +255,18 @@ func (b *bitSet) Or(b1 BitSet) (bool, error) {
 
 var bitSetPool = sync.Pool{}
 
-func AcquireBitSet(size int) BitSet {
+func acquireBitSet(size int) BitSet {
 	v := bitSetPool.Get()
 	if v == nil {
-		return NewBitSet(size)
+		return newBitSet(size)
 	}
 	if b, ok := v.(*bitSet); ok {
 		b.grow(size)
 		return b
 	}
-	return NewBitSet(size)
+	return newBitSet(size)
 }
 
-func ReleaseBitSet(b BitSet) {
+func releaseBitSet(b BitSet) {
 	bitSetPool.Put(b)
-}
-
-var deBruijn = [...]byte{
-	0, 1, 56, 2, 57, 49, 28, 3, 61, 58, 42, 50, 38, 29, 17, 4,
-	62, 47, 59, 36, 45, 43, 51, 22, 53, 39, 33, 30, 24, 18, 12, 5,
-	63, 55, 48, 27, 60, 41, 37, 16, 46, 35, 44, 21, 52, 32, 23, 11,
-	54, 26, 40, 15, 34, 20, 31, 10, 25, 14, 19, 9, 13, 8, 7, 6,
-}
-
-func trailingZeroes64(v uint64) uint {
-	return uint(deBruijn[((v&-v)*0x03f79d71b4ca8b09)>>58])
-}
-
-// popcount calculates bit population count (aka bitCount).
-// Credits to https://github.com/willf/bitset/pull/21
-func popcount(n uint64) uint64 {
-	n -= (n >> 1) & 0x5555555555555555
-	n = (n>>2)&0x3333333333333333 + n&0x3333333333333333
-	n += n >> 4
-	n &= 0x0f0f0f0f0f0f0f0f
-	n *= 0x0101010101010101
-	return n >> 56
 }

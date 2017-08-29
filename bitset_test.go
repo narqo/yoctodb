@@ -7,7 +7,7 @@ import (
 func TestBitSet(t *testing.T) {
 	lens := []int{3, 5, 8, 11, 143}
 	for _, l := range lens {
-		b := NewBitSet(l)
+		b := newBitSet(l)
 		testBitSet(t, "init run", l, b)
 		b.Reset()
 		testBitSet(t, "after reset", l, b)
@@ -30,7 +30,7 @@ func testBitSet(t *testing.T, prefix string, l int, b BitSet) {
 }
 
 func TestBitSet_And(t *testing.T) {
-	b1, b2 := NewBitSetOfOnes(5), NewBitSet(5)
+	b1, b2 := newBitSetOfOnes(5), newBitSet(5)
 
 	b2.Set(2)
 	b2.Set(4)
@@ -48,29 +48,29 @@ func TestBitSet_And(t *testing.T) {
 		t.Error("expect bit 4 to be set")
 	}
 
-	b1, b2 = NewBitSet(5), NewBitSet(10)
+	b1, b2 = newBitSet(5), newBitSet(10)
 	if _, err := b1.And(b2); err == nil {
 		t.Fatal("And() on BitSets of different sizes expected to fail")
 	}
 
-	b1, b2 = NewBitSet(5), NewBitSet(5)
+	b1, b2 = newBitSet(5), newBitSet(5)
 	if isAnySet, _ := b1.And(b2); isAnySet {
 		t.Fatal("And() on empty BitSets expected to be empty")
 	}
 
-	b1, b2 = NewBitSet(5), NewBitSetOfOnes(5)
+	b1, b2 = newBitSet(5), newBitSetOfOnes(5)
 	if isAnySet, _ := b1.And(b2); isAnySet {
 		t.Fatal("And() with non-empty BitSets expected to be empty")
 	}
 
-	b1, b2 = NewBitSetOfOnes(5), NewBitSetOfOnes(5)
+	b1, b2 = newBitSetOfOnes(5), newBitSetOfOnes(5)
 	if isAnySet, _ := b1.And(b2); !isAnySet {
 		t.Fatal("And() of non-empty BitSets expected to not be empty")
 	}
 }
 
 func TestBitSet_Or(t *testing.T) {
-	b1, b2 := NewBitSetOfOnes(5), NewBitSet(5)
+	b1, b2 := newBitSetOfOnes(5), newBitSet(5)
 
 	b2.Set(2)
 	b2.Set(4)
@@ -88,17 +88,17 @@ func TestBitSet_Or(t *testing.T) {
 		t.Error("expect bit 4 to be set")
 	}
 
-	b1, b2 = NewBitSet(5), NewBitSet(10)
+	b1, b2 = newBitSet(5), newBitSet(10)
 	if _, err := b1.Or(b2); err == nil {
 		t.Fatal("Or() on BitSets of different sizes expected to fail")
 	}
 
-	b1, b2 = NewBitSet(5), NewBitSet(5)
+	b1, b2 = newBitSet(5), newBitSet(5)
 	if isAnySet, _ := b1.Or(b2); isAnySet {
 		t.Fatal("Or() on empty BitSets expected to be empty")
 	}
 
-	b1, b2 = NewBitSet(5), NewBitSetOfOnes(5)
+	b1, b2 = newBitSet(5), newBitSetOfOnes(5)
 	if isAnySet, _ := b1.Or(b2); !isAnySet {
 		t.Fatal("Or() with non-empty BitSets expected to not be empty")
 	}
@@ -106,7 +106,7 @@ func TestBitSet_Or(t *testing.T) {
 
 func TestBitSet_Cardinality(t *testing.T) {
 	n := 5
-	b := NewBitSet(n)
+	b := newBitSet(n)
 
 	if b.Cardinality() != 0 {
 		t.Fatal("Cardinality() of empty BitSet expect to be 0")
@@ -122,7 +122,7 @@ func TestBitSet_Cardinality(t *testing.T) {
 
 func TestBitSet_NextSet(t *testing.T) {
 	n := 5
-	b := NewBitSet(n)
+	b := newBitSet(n)
 	b.Set(1)
 	b.Set(2)
 	b.Set(4)
